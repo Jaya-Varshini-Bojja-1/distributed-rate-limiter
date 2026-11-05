@@ -12,7 +12,13 @@
 
     <artifactId>snapshot-api</artifactId>
     <name>snapshot-api</name>
-    <description>Shared configuration snapshot contracts (records added in Milestone 2)</description>
+    <description>Shared configuration snapshot records</description>
 
-    <!-- Library module: no Spring, HTTP, JPA, or Redis. -->
+    <!-- Library module: Jackson annotations for field order only. No Spring, HTTP, JPA, or Redis. -->
+    <dependencies>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+        </dependency>
+    </dependencies>
 </project>

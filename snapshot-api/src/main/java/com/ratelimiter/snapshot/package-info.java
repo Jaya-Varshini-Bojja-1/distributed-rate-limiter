@@ -1,5 +1,5 @@
 /**
- * Shared configuration-snapshot contracts used by the Configuration Service and the Gateway.
- * Records and JSON field names are added in Milestone 2.
+ * Shared configuration-snapshot records used by the Configuration Service and the Gateway.
+ * JSON field order is fixed so the serialized snapshot bytes stay deterministic.
  */
 package com.ratelimiter.snapshot;

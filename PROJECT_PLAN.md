@@ -121,19 +121,25 @@ Frozen architecture pack: Sections 1–10 (approved). This file tracks implement
 
 **Implementation tasks**
 
-- [ ] `snapshot-api` records (no `generatedAt`)
-- [ ] Two ordered queries in one `READ ONLY REPEATABLE READ` transaction
-- [ ] Serialize once → SHA-256 those bytes → send those bytes
-- [ ] `If-None-Match` → `304`
-- [ ] Thin `X-Internal-Token` check (hardened in Milestone 7)
+- [x] `snapshot-api` records (no `generatedAt`)
+- [x] Two ordered queries in one `READ ONLY REPEATABLE READ` transaction
+- [x] Serialize once → SHA-256 those bytes → send those bytes
+- [x] `If-None-Match` → `304`
+- [ ] Thin `X-Internal-Token` check (hardened in Milestone 7). Deferred: the endpoint is open on localhost until Milestone 7
 
 **Required tests**
 
-- [ ] Stable `ETag` when data is unchanged; contents rules (enabled policies, revoked omitted, suspended keys + `clientStatus`)
+- [x] Stable `ETag` when data is unchanged; contents rules (enabled policies, revoked omitted, suspended keys + `clientStatus`)
 
-**Completion criteria.** Gateway-ready snapshot contract; `304` works.
+**Completion criteria.** Gateway-ready snapshot contract; `304` works. The internal-token check remains Milestone 7.
 
 **Interview checkpoints.** Why `generatedAt` would break `304`; why `MAX(updated_at)` is wrong; MVCC / `REPEATABLE READ`.
+
+**Verification notes (2026-11-05)**
+
+- `./mvnw test`: **BUILD SUCCESS**. config-service 15 unit tests (the Milestone 1 tests plus snapshot JSON, ETag, and assembler). gateway 1, demo-service 1. No Docker.
+- `./mvnw verify`: **BUILD SUCCESS**. `AdminApiIT` 7 tests unchanged. `SnapshotApiIT` 7 tests on Testcontainers PostgreSQL 16.15. Covered the seeded snapshot without `generatedAt`, a stable `ETag` equal to the SHA-256 of the body, `304` with an empty body, disabled policies omitted, revoked keys omitted, suspended keys kept with `clientStatus`, and a key committed between the two queries staying invisible under `REPEATABLE READ` (`transaction_read_only` on).
+- `X-Internal-Token` and Spring Security were not added. Gateway, `rate-limiter-core`, and demo-service were not changed.
 
 ---
 

@@ -2,7 +2,7 @@
 
 A learning project for SDE-1 / Software Engineer 1 preparation. It will enforce per-client API rate limits across multiple gateway instances using a **Token Bucket** stored in Redis and evaluated atomically with a Lua script.
 
-**Current status:** Milestone 1 — Configuration Service schema and admin API. The rate limiter, snapshot API, gateway filters, dashboard, and deployment are **planned, not implemented**. The admin API has no authentication yet (Milestone 7).
+**Current status:** Milestone 2 — snapshot API and ETag. The rate limiter, gateway filters, dashboard, and deployment are **planned, not implemented**. The admin API and snapshot endpoint have no authentication yet (Milestone 7).
 
 | Area | Status |
 |---|---|
@@ -11,8 +11,9 @@ A learning project for SDE-1 / Software Engineer 1 preparation. It will enforce 
 | PostgreSQL 16 + Redis 7 via Docker Compose | Implemented and verified (see Testing) |
 | Plans, clients, API keys, and policies in PostgreSQL | Implemented (Milestone 1) |
 | Admin API on `config-service` | Implemented (Milestone 1). Open locally; do not expose it publicly |
+| `GET /internal/v1/snapshot` and ETag | Implemented (Milestone 2). Open locally; internal token is Milestone 7 |
 | Token Bucket / Redis Lua | Planned (Milestone 3) |
-| Snapshots and gateway filters | Planned (Milestones 2–6) |
+| Gateway filters and snapshot refresh | Planned (Milestones 5–6) |
 | Security, dashboard, metrics, two-gateway load test, EC2 | Planned (Milestones 7–11) |
 
 ---
@@ -45,7 +46,7 @@ API clients will send requests through an API gateway with an `X-API-Key` header
 
 ## Architecture
 
-**Implemented now:** empty Java modules plus PostgreSQL and Redis on a private Docker network.
+**Implemented now:** Configuration Service admin API and `GET /internal/v1/snapshot`, plus PostgreSQL and Redis on a private Docker network. The gateway does not poll the snapshot yet.
 
 **Planned runtime:**
 
@@ -69,8 +70,8 @@ flowchart LR
 |---|---|---|
 | **Gateway** | Authenticate API keys, apply Token Bucket, forward to the demo service | Skeleton only |
 | **rate-limiter-core** | Redis Lua Token Bucket library used by the gateway | Skeleton only |
-| **Configuration Service** | Admin CRUD and PostgreSQL. Snapshot API is not built yet | Admin API implemented |
-| **snapshot-api** | Shared snapshot records (no Redis / HTTP) | Skeleton only |
+| **Configuration Service** | Admin CRUD, PostgreSQL, and the snapshot endpoint | Admin API and snapshot endpoint implemented |
+| **snapshot-api** | Shared snapshot records (no Redis / HTTP) | Records implemented |
 | **Demo service** | Tiny in-memory backend behind the gateway | Skeleton only |
 | **PostgreSQL 16** | Durable plans, clients, keys, policies | Schema applied by Flyway when `config-service` starts |
 | **Redis 7** | Token buckets and later metrics | Running locally via Compose |
@@ -90,7 +91,7 @@ The gateway will **not** query PostgreSQL per request. It will refresh a snapsho
 
 | Module | Depends on | Must not depend on |
 |---|---|---|
-| `snapshot-api` | — | Spring Web, JPA, Redis |
+| `snapshot-api` | `jackson-annotations` (JSON field order only) | Spring Web, JPA, Redis |
 | `rate-limiter-core` | — (Redis client in Milestone 3) | HTTP, MVC, JPA, `config-service` |
 | `config-service` | `snapshot-api` | `rate-limiter-core` |
 | `gateway` | `snapshot-api`, `rate-limiter-core` | PostgreSQL / JPA |
@@ -128,7 +129,7 @@ All of the following are **planned** unless marked implemented.
 - API-key authentication (`X-API-Key`, SHA-256 stored) — *planned*
 - Plans and policies in PostgreSQL — **implemented (Milestone 1)**
 - Admin API for plans, policies, clients, and API keys — **implemented (Milestone 1)**
-- Configuration snapshots + `ETag` / `304` — *planned*
+- Configuration snapshots + `ETag` / `304` — **implemented (Milestone 2)**. Gateway polling is still planned (Milestone 6)
 - Admin dashboard — *planned*
 - Best-effort metrics flushed to Redis — *planned*
 - Maven multi-module + Compose infra — **implemented (Milestone 0)**
@@ -152,7 +153,7 @@ Token Bucket, lazy refill:
 
 ### Implemented
 
-`config-service` on port **8081** serves the admin API. It is not authenticated in this milestone. Run it only on localhost, with Postgres already up.
+`config-service` on port **8081** serves the admin API and `GET /internal/v1/snapshot`. Neither is authenticated yet. Run the service only on localhost, with Postgres already up.
 
 | Method and path | Success |
 |---|---|
@@ -173,19 +174,21 @@ Token Bucket, lazy refill:
 | `GET /api/v1/admin/clients/{clientId}/api-keys` | `200`. Prefix and dates only |
 | `POST /api/v1/admin/clients/{clientId}/api-keys` | `201`, raw key once, `Cache-Control: no-store` |
 | `POST /api/v1/admin/clients/{clientId}/api-keys/{keyId}/revoke` | `200`. Safe to call again |
+| `GET /internal/v1/snapshot` | `200` and `ETag`, or `304` when `If-None-Match` matches |
 
-Errors use `application/problem+json` with a stable `code` (`VALIDATION_FAILED`, `NOT_FOUND`, `DUPLICATE`, `PLAN_IN_USE`, `DEFAULT_POLICY_PROTECTED`, `POLICY_VERSION_CONFLICT`, `CLIENT_SUSPENDED`, `INTERNAL_ERROR`).
+Errors use `application/problem+json` with a stable `code` (`VALIDATION_FAILED`, `NOT_FOUND`, `DUPLICATE`, `PLAN_IN_USE`, `DEFAULT_POLICY_PROTECTED`, `POLICY_VERSION_CONFLICT`, `CLIENT_SUSPENDED`, `INTERNAL_ERROR`). If PostgreSQL cannot be reached, the snapshot endpoint returns `503` with `INTERNAL_ERROR`.
+
+The snapshot body is configuration only. There is no `generatedAt`. `plans` lists each plan id and code with its enabled policies (`policyId`, `pathPattern`, `httpMethod`, `capacity`, `refillTokens`, `refillPeriodSeconds`). `apiKeys` lists non-revoked keys, including keys of suspended clients, as `keyHash`, `clientId`, `planId`, and `clientStatus`. The `ETag` is a strong quoted SHA-256 of those exact response bytes. Send it back as `If-None-Match` to receive `304` with an empty body when nothing changed.
 
 | Application | Default local port | Endpoints |
 |---|---|---|
 | `gateway` | 8080 | None implemented |
-| `config-service` | 8081 | Admin API above |
+| `config-service` | 8081 | Admin API and `GET /internal/v1/snapshot` |
 | `demo-service` | 8082 | None implemented |
 
 ### Planned (do not call these yet)
 
 - Gateway public traffic: `/api/**` with `X-API-Key`
-- Internal: `GET /internal/v1/snapshot`
 
 ---
 
@@ -323,7 +326,7 @@ Start infra with the override first. `config-service` connects to `localhost:543
 
 `./mvnw test` runs unit tests and the gateway and demo context tests. It does not need Docker.
 
-`./mvnw verify` also runs `config-service` `AdminApiIT` against PostgreSQL 16 in Testcontainers.
+`./mvnw verify` also runs `config-service` `AdminApiIT` and `SnapshotApiIT` against PostgreSQL 16 in Testcontainers.
 
 Verified on 2026-11-05 (Java 21.0.13.0.3, Maven 3.10.0):
 
@@ -331,11 +334,11 @@ Verified on 2026-11-05 (Java 21.0.13.0.3, Maven 3.10.0):
 |---|---|---|
 | snapshot-api | 0 | none |
 | rate-limiter-core | 0 | none |
-| config-service | 6 unit tests | 7 integration tests, PostgreSQL 16 |
+| config-service | 15 unit tests | 14 integration tests, PostgreSQL 16 |
 | gateway | 1 context test | none |
 | demo-service | 1 context test | none |
 
-`./mvnw test` and `./mvnw verify`: **BUILD SUCCESS**. config-service verify adds 7 PostgreSQL 16 integration tests to the 6 unit tests. Details are in [PROJECT_PLAN.md](PROJECT_PLAN.md).
+`./mvnw test` and `./mvnw verify`: **BUILD SUCCESS**. config-service verify adds 14 PostgreSQL 16 integration tests to the 15 unit tests: 7 admin tests and 7 snapshot tests. Details are in [PROJECT_PLAN.md](PROJECT_PLAN.md).
 
 ### Future strategy (approved)
 
