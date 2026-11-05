@@ -2,7 +2,7 @@
 
 A learning project for SDE-1 / Software Engineer 1 preparation. It will enforce per-client API rate limits across multiple gateway instances using a **Token Bucket** stored in Redis and evaluated atomically with a Lua script.
 
-**Current status:** Milestone 2 — snapshot API and ETag. The rate limiter, gateway filters, dashboard, and deployment are **planned, not implemented**. The admin API and snapshot endpoint have no authentication yet (Milestone 7).
+**Current status:** Milestone 3 — Redis Lua Token Bucket in `rate-limiter-core`. Gateway filters, the dashboard, and deployment are **planned, not implemented**. The admin API and snapshot endpoint have no authentication yet (Milestone 7).
 
 | Area | Status |
 |---|---|
@@ -12,7 +12,7 @@ A learning project for SDE-1 / Software Engineer 1 preparation. It will enforce 
 | Plans, clients, API keys, and policies in PostgreSQL | Implemented (Milestone 1) |
 | Admin API on `config-service` | Implemented (Milestone 1). Open locally; do not expose it publicly |
 | `GET /internal/v1/snapshot` and ETag | Implemented (Milestone 2). Open locally; internal token is Milestone 7 |
-| Token Bucket / Redis Lua | Planned (Milestone 3) |
+| Token Bucket / Redis Lua | Implemented in `rate-limiter-core` (Milestone 3). The gateway does not call it yet |
 | Gateway filters and snapshot refresh | Planned (Milestones 5–6) |
 | Security, dashboard, metrics, two-gateway load test, EC2 | Planned (Milestones 7–11) |
 
@@ -69,12 +69,12 @@ flowchart LR
 | Component | Role | Status |
 |---|---|---|
 | **Gateway** | Authenticate API keys, apply Token Bucket, forward to the demo service | Skeleton only |
-| **rate-limiter-core** | Redis Lua Token Bucket library used by the gateway | Skeleton only |
+| **rate-limiter-core** | Redis Lua Token Bucket library used by the gateway | Implemented (Milestone 3). Not wired into the gateway yet |
 | **Configuration Service** | Admin CRUD, PostgreSQL, and the snapshot endpoint | Admin API and snapshot endpoint implemented |
 | **snapshot-api** | Shared snapshot records (no Redis / HTTP) | Records implemented |
 | **Demo service** | Tiny in-memory backend behind the gateway | Skeleton only |
 | **PostgreSQL 16** | Durable plans, clients, keys, policies | Schema applied by Flyway when `config-service` starts |
-| **Redis 7** | Token buckets and later metrics | Running locally via Compose |
+| **Redis 7** | Token buckets and later metrics | Bucket library implemented. Metrics are still Milestone 9. Compose Redis is local infra only |
 | **React dashboard** | Admin UI | Placeholder directory |
 | **nginx** | TLS, same-origin admin, public `/api/` | Placeholder directory |
 
@@ -92,7 +92,7 @@ The gateway will **not** query PostgreSQL per request. It will refresh a snapsho
 | Module | Depends on | Must not depend on |
 |---|---|---|
 | `snapshot-api` | `jackson-annotations` (JSON field order only) | Spring Web, JPA, Redis |
-| `rate-limiter-core` | — (Redis client in Milestone 3) | HTTP, MVC, JPA, `config-service` |
+| `rate-limiter-core` | `spring-data-redis` and Lettuce (optional, so they are not forced onto the gateway) | HTTP, MVC, JPA, `config-service` |
 | `config-service` | `snapshot-api` | `rate-limiter-core` |
 | `gateway` | `snapshot-api`, `rate-limiter-core` | PostgreSQL / JPA |
 | `demo-service` | — | Limiter and config modules |
@@ -123,8 +123,8 @@ The gateway will **not** query PostgreSQL per request. It will refresh a snapsho
 
 All of the following are **planned** unless marked implemented.
 
-- Token Bucket rate limiting with lazy refill — *planned*
-- Atomic Redis Lua (`EVALSHA`, write on allow only) — *planned*
+- Token Bucket rate limiting with lazy refill — **implemented in `rate-limiter-core` (Milestone 3)**. Gateway enforcement is Milestone 5
+- Atomic Redis Lua (`EVALSHA`, write on allow only) — **implemented in `rate-limiter-core` (Milestone 3)**
 - Two gateway instances sharing Redis — *planned* (Milestone 10)
 - API-key authentication (`X-API-Key`, SHA-256 stored) — *planned*
 - Plans and policies in PostgreSQL — **implemented (Milestone 1)**
@@ -136,16 +136,17 @@ All of the following are **planned** unless marked implemented.
 
 ---
 
-## Algorithm (planned)
+## Algorithm
 
-Token Bucket, lazy refill:
+Token Bucket, lazy refill. The production math is only in `rate-limiter-core/src/main/resources/redis/token_bucket.lua`. Java loads that script with Spring Data Redis, which sends `EVALSHA` and reloads it after `NOSCRIPT`.
 
 - Each client+policy has a Redis hash `rl:bucket:<clientId>:<policyId>` with `tokens` and `ts`.
-- On a request, a Lua script uses Redis `TIME`, refills `min(capacity, tokens + elapsed × rate)`, and consumes one token if available.
+- On a request, the script uses Redis `TIME`, refills `min(capacity, tokens + elapsed × rate)`, and consumes one token if available. The first request starts from a full bucket.
 - Redis executes the script atomically (single-threaded), which prevents two gateways from over-admitting.
-- Denied requests do not write. Idle keys expire after about one full refill period.
+- Denied requests do not write and do not refresh the TTL. Idle keys expire after the time to refill from empty to full, plus 1 second.
+- The script returns integers: allowed, remaining, retry-after milliseconds, and reset milliseconds. A Redis outage returns `UNAVAILABLE` from the library. Mapping that to HTTP fail-open is the gateway’s job (Milestone 5).
 
-**This Lua script is not in the repository yet.**
+The gateway does not call this library yet.
 
 ---
 
@@ -326,19 +327,19 @@ Start infra with the override first. `config-service` connects to `localhost:543
 
 `./mvnw test` runs unit tests and the gateway and demo context tests. It does not need Docker.
 
-`./mvnw verify` also runs `config-service` `AdminApiIT` and `SnapshotApiIT` against PostgreSQL 16 in Testcontainers.
+`./mvnw verify` also runs Testcontainers integration tests: `rate-limiter-core` `TokenBucketIT` on Redis 7, and `config-service` `AdminApiIT` and `SnapshotApiIT` on PostgreSQL 16.
 
 Verified on 2026-11-05 (Java 21.0.13.0.3, Maven 3.10.0):
 
 | Module | `./mvnw test` | `./mvnw verify` extra |
 |---|---|---|
 | snapshot-api | 0 | none |
-| rate-limiter-core | 0 | none |
+| rate-limiter-core | 10 unit tests | 12 integration tests, Redis 7 |
 | config-service | 15 unit tests | 14 integration tests, PostgreSQL 16 |
 | gateway | 1 context test | none |
 | demo-service | 1 context test | none |
 
-`./mvnw test` and `./mvnw verify`: **BUILD SUCCESS**. config-service verify adds 14 PostgreSQL 16 integration tests to the 15 unit tests: 7 admin tests and 7 snapshot tests. Details are in [PROJECT_PLAN.md](PROJECT_PLAN.md).
+`./mvnw test` and `./mvnw verify`: **BUILD SUCCESS**. `rate-limiter-core` verify adds 12 Redis 7 tests, including the concurrent bucket test. config-service verify adds 14 PostgreSQL 16 tests: 7 admin tests and 7 snapshot tests. Details are in [PROJECT_PLAN.md](PROJECT_PLAN.md).
 
 ### Future strategy (approved)
 

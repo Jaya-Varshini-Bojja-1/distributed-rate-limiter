@@ -151,21 +151,28 @@ Frozen architecture pack: Sections 1–10 (approved). This file tracks implement
 
 **Implementation tasks**
 
-- [ ] `token_bucket.lua` (Redis `TIME`, write on allow only, integer returns, TTL)
-- [ ] Java `EVALSHA` wrapper, Lettuce, 100 ms / 500 ms timeouts
-- [ ] Key `rl:bucket:<clientId>:<policyId>`
-- [ ] Redis unavailable → `UNAVAILABLE` (HTTP fail-open is the gateway’s job)
+- [x] `token_bucket.lua` (Redis `TIME`, write on allow only, integer returns, TTL)
+- [x] Java `EVALSHA` wrapper, Lettuce, 100 ms / 500 ms timeouts
+- [x] Key `rl:bucket:<clientId>:<policyId>`
+- [x] Redis unavailable → `UNAVAILABLE` (HTTP fail-open is the gateway’s job)
 
 **Required tests**
 
-- [ ] **Priority:** concurrent `CountDownLatch`, allows == tokens available
-- [ ] Burst, deny-does-not-write, short-period refill, capacity clamp, TTL
-- [ ] Connection refused → `UNAVAILABLE`
-- [ ] No Java production copy of the refill math
+- [x] **Priority:** concurrent `CountDownLatch`, allows == tokens available
+- [x] Burst, deny-does-not-write, short-period refill, capacity clamp, TTL
+- [x] Connection refused → `UNAVAILABLE`
+- [x] No Java production copy of the refill math
 
 **Completion criteria.** Core is correct against Redis 7 Testcontainers.
 
 **Interview checkpoints.** Check-then-act; JVM locks vs Redis atomicity; lazy refill.
+
+**Verification notes (2026-11-05)**
+
+- `./mvnw -pl rate-limiter-core test`: **BUILD SUCCESS**. 10 unit tests (key format, argument bounds, frozen 100 ms / 500 ms settings, Redis failure classification). No Docker.
+- `./mvnw -pl rate-limiter-core verify`: **BUILD SUCCESS**. `TokenBucketIT` 12 tests on Testcontainers Redis 7. Concurrent virtual threads with one `CountDownLatch`: 60 callers, capacity 30, allows == 30 and the rest denied. Also covered a full first bucket, burst then deny, deny leaving `tokens` / `ts` / `PTTL` unchanged, a 1-second refill clamped to `capacity - 1`, a stored balance above a lowered capacity clamped on the next allow, a future `ts` adding no tokens, `PTTL` in the 12–13 second window for capacity 20 / 100 tokens / 60 seconds, `SCRIPT FLUSH SYNC` then another allow, a closed port returning `UNAVAILABLE` in under 2 seconds, separate client and policy keys, and `requirepass` (right password allowed, wrong password `UNAVAILABLE`).
+- `./mvnw test` and `./mvnw verify`: **BUILD SUCCESS**. Gateway and demo context tests still pass. config-service stays at 15 unit tests and 14 PostgreSQL 16 integration tests. Gateway’s dependency tree does not include Lettuce or Spring Data Redis.
+- Refill math is only in `token_bucket.lua`. No metrics buffer, gateway filter, or HTTP status mapping was added.
 
 ---
 
