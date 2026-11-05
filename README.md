@@ -2,15 +2,17 @@
 
 A learning project for SDE-1 / Software Engineer 1 preparation. It will enforce per-client API rate limits across multiple gateway instances using a **Token Bucket** stored in Redis and evaluated atomically with a Lua script.
 
-**Current status:** Milestone 0 — repository skeleton and local infrastructure. The rate limiter, admin API, dashboard, and deployment are **planned, not implemented**.
+**Current status:** Milestone 1 — Configuration Service schema and admin API. The rate limiter, snapshot API, gateway filters, dashboard, and deployment are **planned, not implemented**. The admin API has no authentication yet (Milestone 7).
 
 | Area | Status |
 |---|---|
 | Maven multi-module skeleton | Implemented |
-| Spring Boot entry points (empty apps) | Implemented |
+| Spring Boot entry points | Implemented |
 | PostgreSQL 16 + Redis 7 via Docker Compose | Implemented and verified (see Testing) |
+| Plans, clients, API keys, and policies in PostgreSQL | Implemented (Milestone 1) |
+| Admin API on `config-service` | Implemented (Milestone 1). Open locally; do not expose it publicly |
 | Token Bucket / Redis Lua | Planned (Milestone 3) |
-| Admin API, snapshots, gateway filters | Planned (Milestones 1–6) |
+| Snapshots and gateway filters | Planned (Milestones 2–6) |
 | Security, dashboard, metrics, two-gateway load test, EC2 | Planned (Milestones 7–11) |
 
 ---
@@ -67,10 +69,10 @@ flowchart LR
 |---|---|---|
 | **Gateway** | Authenticate API keys, apply Token Bucket, forward to the demo service | Skeleton only |
 | **rate-limiter-core** | Redis Lua Token Bucket library used by the gateway | Skeleton only |
-| **Configuration Service** | Admin CRUD, PostgreSQL, snapshot API | Skeleton only |
+| **Configuration Service** | Admin CRUD and PostgreSQL. Snapshot API is not built yet | Admin API implemented |
 | **snapshot-api** | Shared snapshot records (no Redis / HTTP) | Skeleton only |
 | **Demo service** | Tiny in-memory backend behind the gateway | Skeleton only |
-| **PostgreSQL 16** | Durable plans, clients, keys, policies | Running locally via Compose |
+| **PostgreSQL 16** | Durable plans, clients, keys, policies | Schema applied by Flyway when `config-service` starts |
 | **Redis 7** | Token buckets and later metrics | Running locally via Compose |
 | **React dashboard** | Admin UI | Placeholder directory |
 | **nginx** | TLS, same-origin admin, public `/api/` | Placeholder directory |
@@ -124,7 +126,8 @@ All of the following are **planned** unless marked implemented.
 - Atomic Redis Lua (`EVALSHA`, write on allow only) — *planned*
 - Two gateway instances sharing Redis — *planned* (Milestone 10)
 - API-key authentication (`X-API-Key`, SHA-256 stored) — *planned*
-- Plans and policies in PostgreSQL — *planned*
+- Plans and policies in PostgreSQL — **implemented (Milestone 1)**
+- Admin API for plans, policies, clients, and API keys — **implemented (Milestone 1)**
 - Configuration snapshots + `ETag` / `304` — *planned*
 - Admin dashboard — *planned*
 - Best-effort metrics flushed to Redis — *planned*
@@ -149,32 +152,63 @@ Token Bucket, lazy refill:
 
 ### Implemented
 
-No public HTTP APIs yet. The three Spring Boot apps are empty entry points:
+`config-service` on port **8081** serves the admin API. It is not authenticated in this milestone. Run it only on localhost, with Postgres already up.
+
+| Method and path | Success |
+|---|---|
+| `GET /api/v1/admin/plans` | `200` |
+| `POST /api/v1/admin/plans` | `201` and `Location`. Creates the plan and its default `/**` + `ANY` policy together |
+| `GET /api/v1/admin/plans/{planId}` | `200` |
+| `PATCH /api/v1/admin/plans/{planId}` | `200`. Name and description only |
+| `DELETE /api/v1/admin/plans/{planId}` | `204`, or `409` when clients still use it |
+| `GET /api/v1/admin/plans/{planId}/policies` | `200` |
+| `POST /api/v1/admin/plans/{planId}/policies` | `201` |
+| `GET /api/v1/admin/plans/{planId}/policies/{policyId}` | `200` |
+| `PUT /api/v1/admin/plans/{planId}/policies/{policyId}` | `200`. Body includes `version`. Stale version is `409` |
+| `DELETE /api/v1/admin/plans/{planId}/policies/{policyId}` | `204`, or `409` for the default policy |
+| `GET /api/v1/admin/clients?planId=&status=&page=0&size=20` | `200` page |
+| `POST /api/v1/admin/clients` | `201` |
+| `GET /api/v1/admin/clients/{clientId}` | `200` |
+| `PATCH /api/v1/admin/clients/{clientId}` | `200`. Name, plan, or `ACTIVE` / `SUSPENDED` |
+| `GET /api/v1/admin/clients/{clientId}/api-keys` | `200`. Prefix and dates only |
+| `POST /api/v1/admin/clients/{clientId}/api-keys` | `201`, raw key once, `Cache-Control: no-store` |
+| `POST /api/v1/admin/clients/{clientId}/api-keys/{keyId}/revoke` | `200`. Safe to call again |
+
+Errors use `application/problem+json` with a stable `code` (`VALIDATION_FAILED`, `NOT_FOUND`, `DUPLICATE`, `PLAN_IN_USE`, `DEFAULT_POLICY_PROTECTED`, `POLICY_VERSION_CONFLICT`, `CLIENT_SUSPENDED`, `INTERNAL_ERROR`).
 
 | Application | Default local port | Endpoints |
 |---|---|---|
 | `gateway` | 8080 | None implemented |
-| `config-service` | 8081 | None implemented |
+| `config-service` | 8081 | Admin API above |
 | `demo-service` | 8082 | None implemented |
 
 ### Planned (do not call these yet)
 
 - Gateway public traffic: `/api/**` with `X-API-Key`
-- Admin: `/api/v1/admin/plans`, `/clients`, `/api-keys`, policies
 - Internal: `GET /internal/v1/snapshot`
 
 ---
 
-## Database design (planned)
+## Database design
 
-PostgreSQL tables will be created with Flyway in Milestone 1. **No migrations exist yet.**
+Flyway migration `config-service/src/main/resources/db/migration/V1__init.sql` creates the tables. Hibernate uses `ddl-auto: validate`, so the application refuses to start if the entities and the schema disagree.
 
 | Table | Purpose |
 |---|---|
-| `plans` | Tiers such as FREE, PRO, ENTERPRISE |
-| `clients` | API customers assigned to a plan |
-| `api_keys` | SHA-256 hashes and display prefixes; `revoked_at` for soft revoke |
-| `rate_limit_policies` | Path, method (`ANY`/`GET`/…), capacity, refill, version |
+| `plans` | Tiers. Seeded `FREE`, `PRO`, and `ENTERPRISE` |
+| `clients` | API customers assigned to a plan. `ACTIVE` or `SUSPENDED` |
+| `api_keys` | SHA-256 hashes and display prefixes. `revoked_at` revokes a key without deleting the row |
+| `rate_limit_policies` | Path, method (`ANY`, `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`), capacity, refill, and `@Version` |
+
+Seeded default policies (`/**`, method `ANY`):
+
+| Plan | Capacity | Refill tokens | Period |
+|---|---|---|---|
+| FREE | 20 | 100 | 60 seconds |
+| PRO | 100 | 600 | 60 seconds |
+| ENTERPRISE | 1000 | 6000 | 60 seconds |
+
+The default policy can be edited. The database rejects disabling it. The service rejects deleting it.
 
 ---
 
@@ -275,31 +309,33 @@ Add `-v` only if you also want to delete the Postgres volume.
 ./mvnw test
 ```
 
-`./mvnw verify` will later run Testcontainers (`*IT`). That is **not** set up in Milestone 0.
+`./mvnw verify` runs Testcontainers integration tests (`*IT`). Docker must be running. `./mvnw test` does not start containers.
 
 ### Run a Spring Boot app from the IDE (optional)
 
-Start infra with the override first. The apps do not connect to Postgres or Redis yet; they only listen on the ports above.
+Start infra with the override first. `config-service` connects to `localhost:5432` and applies Flyway on startup. `gateway` and `demo-service` still do not use Postgres or Redis. Override the database password with `POSTGRES_PASSWORD` when `.env` is not `change-me`.
 
 ---
 
 ## Testing
 
-### Current tests (Milestone 0)
+### Current tests
 
-Each executable module has a `contextLoads` test (`@SpringBootTest`). Library modules have no tests yet.
+`./mvnw test` runs unit tests and the gateway and demo context tests. It does not need Docker.
 
-Verified on 2026-11-05 with `./mvnw test` (Java 21.0.13.0.3, Maven 3.10.0):
+`./mvnw verify` also runs `config-service` `AdminApiIT` against PostgreSQL 16 in Testcontainers.
 
-| Module | Tests | Result |
+Verified on 2026-11-05 (Java 21.0.13.0.3, Maven 3.10.0):
+
+| Module | `./mvnw test` | `./mvnw verify` extra |
 |---|---|---|
-| snapshot-api | 0 | SUCCESS |
-| rate-limiter-core | 0 | SUCCESS |
-| config-service | 1 | SUCCESS |
-| gateway | 1 | SUCCESS |
-| demo-service | 1 | SUCCESS |
+| snapshot-api | 0 | none |
+| rate-limiter-core | 0 | none |
+| config-service | 6 unit tests | 7 integration tests, PostgreSQL 16 |
+| gateway | 1 context test | none |
+| demo-service | 1 context test | none |
 
-Reactor: **BUILD SUCCESS**. Details are also in [PROJECT_PLAN.md](PROJECT_PLAN.md).
+`./mvnw test` and `./mvnw verify`: **BUILD SUCCESS**. config-service verify adds 7 PostgreSQL 16 integration tests to the 6 unit tests. Details are in [PROJECT_PLAN.md](PROJECT_PLAN.md).
 
 ### Future strategy (approved)
 

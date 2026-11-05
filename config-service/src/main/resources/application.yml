@@ -1,6 +1,20 @@
 spring:
   application:
     name: config-service
+  datasource:
+    # Host port 5432 comes from the Compose infra override. Credentials match .env.example
+    # and can be overridden with POSTGRES_DB, POSTGRES_USER, and POSTGRES_PASSWORD.
+    url: jdbc:postgresql://localhost:5432/${POSTGRES_DB:ratelimiter}
+    username: ${POSTGRES_USER:ratelimiter}
+    password: ${POSTGRES_PASSWORD:change-me}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
 
 server:
   port: 8081

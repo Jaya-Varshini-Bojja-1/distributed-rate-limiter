@@ -90,20 +90,26 @@ Frozen architecture pack: Sections 1–10 (approved). This file tracks implement
 
 **Implementation tasks**
 
-- [ ] Flyway `V1__init.sql` (approved columns, `'ANY'`, `HEAD`/`OPTIONS`, default-policy `CHECK`, `@Version`)
-- [ ] JPA + feature packages + record DTOs
-- [ ] Admin endpoints for plans, policies, clients, API keys
-- [ ] Plan create + default policy in one transaction; default cannot be deleted
-- [ ] Seed FREE / PRO / ENTERPRISE
-- [ ] No Spring Security yet (Milestone 7)
+- [x] Flyway `V1__init.sql` (approved columns, `'ANY'`, `HEAD`/`OPTIONS`, default-policy `CHECK`, `@Version`)
+- [x] JPA + feature packages + record DTOs
+- [x] Admin endpoints for plans, policies, clients, API keys
+- [x] Plan create + default policy in one transaction; default cannot be deleted
+- [x] Seed FREE / PRO / ENTERPRISE
+- [x] No Spring Security yet (Milestone 7)
 
 **Required tests**
 
-- [ ] Testcontainers PostgreSQL 16: Flyway, unique constraint, default disable, `RESTRICT`, optimistic `409`, hash-only keys, revoke idempotency, `Cache-Control: no-store`
+- [x] Testcontainers PostgreSQL 16: Flyway, unique constraint, default disable, `RESTRICT`, optimistic `409`, hash-only keys, revoke idempotency, `Cache-Control: no-store`
 
 **Completion criteria.** Admin CRUD works against Postgres; constraints match the frozen schema.
 
 **Interview checkpoints.** 3NF; `NULL` vs `'ANY'` in `UNIQUE`; optimistic locking; SHA-256 for API keys vs bcrypt for passwords.
+
+**Verification notes (2026-11-05)**
+
+- `./mvnw test`: **BUILD SUCCESS**. config-service 6 unit tests (hash, path pattern, default-policy rule). gateway 1, demo-service 1. No Docker.
+- `./mvnw verify`: **BUILD SUCCESS**. `AdminApiIT` 7 tests on Testcontainers PostgreSQL 16.15. Flyway `V1` applied; `ddl-auto=validate` accepted the schema. Covered unique `ANY`, default-policy check and delete protection, `RESTRICT` / cascade, stale `version` → `409`, hash-only key storage, revoke idempotency, and `Cache-Control: no-store`.
+- Spring Security is not on the classpath. Snapshot and Redis code were not added.
 
 ---
 
