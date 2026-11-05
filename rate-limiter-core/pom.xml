@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.ratelimiter</groupId>
+        <artifactId>distributed-rate-limiter</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>rate-limiter-core</artifactId>
+    <name>rate-limiter-core</name>
+    <description>Token Bucket and Redis Lua implementation (Milestone 3)</description>
+
+    <!--
+      Library module. Future Redis/Lua code lives here.
+      Do not add spring-web, spring-webmvc, or spring-data-jpa.
+    -->
+</project>

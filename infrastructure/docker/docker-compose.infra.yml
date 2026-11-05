@@ -1,0 +1,16 @@
+# IDE-only override. Publishes PostgreSQL and Redis to localhost.
+# Never use this file as the production / full-stack port mapping.
+#
+# From the repository root:
+#   docker compose --env-file .env \
+#     -f infrastructure/docker/docker-compose.yml \
+#     -f infrastructure/docker/docker-compose.infra.yml \
+#     up -d
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"

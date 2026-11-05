@@ -1,0 +1,66 @@
+# Full-stack Compose file (Milestone 0: infrastructure only).
+# PostgreSQL and Redis ports are NOT published here.
+# For local IDE access, also apply docker-compose.infra.yml.
+#
+# From the repository root:
+#   docker compose --env-file .env -f infrastructure/docker/docker-compose.yml up -d
+name: distributed-rate-limiter
+
+networks:
+  backend:
+    driver: bridge
+  # Declared now; used from Milestone 8 when nginx and the dashboard are added.
+  frontend:
+    driver: bridge
+
+volumes:
+  postgres_data:
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: ratelimiter-postgres
+    restart: unless-stopped
+    environment:
+      # Defaults match .env.example so `docker compose ... config` works without a local .env.
+      # Always pass --env-file .env for `up` so you are not using placeholders.
+      POSTGRES_DB: ${POSTGRES_DB:-ratelimiter}
+      POSTGRES_USER: ${POSTGRES_USER:-ratelimiter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - backend
+
+  redis:
+    image: redis:7
+    container_name: ratelimiter-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-me}
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:-change-me}
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-256mb}
+      - --maxmemory-policy
+      - allkeys-lru
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - backend

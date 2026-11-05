@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.ratelimiter</groupId>
+        <artifactId>distributed-rate-limiter</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>gateway</artifactId>
+    <name>gateway</name>
+    <description>API Gateway (request-path filters in Milestone 5)</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.ratelimiter</groupId>
+            <artifactId>snapshot-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.ratelimiter</groupId>
+            <artifactId>rate-limiter-core</artifactId>
+        </dependency>
+        <!--
+          Official Spring Cloud Gateway Server MVC starter (servlet / thread-per-request).
+          Not spring-cloud-starter-gateway-server-webflux (the reactive variant).
+        -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway-server-webmvc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

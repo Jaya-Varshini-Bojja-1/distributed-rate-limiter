@@ -1,0 +1,57 @@
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# Maven
+target/
+!.mvn/wrapper/maven-wrapper.jar
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+release.properties
+
+# Node / future dashboard
+node_modules/
+dist/
+build/
+.vite/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.code-workspace
+.project
+.classpath
+.settings/
+.factorypath
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs and temp
+*.log
+*.tmp
+*.swp
+.cache/
+
+# Certificates and private keys
+*.pem
+*.key
+*.p12
+*.jks
+*.crt
+nginx/certs/
+
+# Docker
+.docker/
+
+# Test / coverage
+.surefire-*
+coverage/
+*.exec
